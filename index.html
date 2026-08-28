@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Pick'em — Three Friends, Sixteen Games, One Winner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --field: #0a1712;
+    --field-2: #0f2018;
+    --line: #1c3327;
+    --chalk: #e8f0ea;
+    --chalk-dim: #8ba394;
+    --turf: #2f9e5e;
+    --turf-bright: #3fd67e;
+    --whistle: #f4c542;
+    --flag: #e5484d;
+    --shadow: rgba(0,0,0,0.4);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--field);
+    background-image:
+      linear-gradient(180deg, var(--field) 0%, var(--field-2) 100%),
+      repeating-linear-gradient(90deg, transparent, transparent 60px, rgba(255,255,255,0.012) 60px, rgba(255,255,255,0.012) 61px);
+    color: var(--chalk);
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 20px 16px 80px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 24px; }
+  .eyebrow {
+    font-family: 'Oswald', sans-serif; font-weight: 500; letter-spacing: 4px;
+    text-transform: uppercase; font-size: 0.72rem; color: var(--turf-bright);
+  }
+  header h1 {
+    font-family: 'Oswald', sans-serif; font-weight: 700; letter-spacing: -0.5px;
+    font-size: clamp(2rem, 7vw, 3.2rem); line-height: 0.95; margin: 4px 0 6px;
+    text-transform: uppercase;
+  }
+  header .sub { color: var(--chalk-dim); font-size: 0.95rem; }
+
+  /* ---- login gate ---- */
+  .gate {
+    background: var(--field-2); border: 1px solid var(--line); border-radius: 14px;
+    padding: 28px 24px; max-width: 380px; margin: 40px auto; text-align: center;
+  }
+  .gate h2 { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 18px; font-size: 1.3rem; }
+  .who { display: flex; gap: 8px; margin-bottom: 16px; }
+  .who button {
+    flex: 1; padding: 12px 4px; border: 1px solid var(--line); background: var(--field);
+    color: var(--chalk); border-radius: 10px; cursor: pointer; font-family: 'Oswald', sans-serif;
+    text-transform: uppercase; letter-spacing: 1px; font-size: 0.95rem; transition: all .15s;
+  }
+  .who button:hover { border-color: var(--turf); }
+  .who button.sel { background: var(--turf); border-color: var(--turf-bright); color: #04120a; font-weight: 600; }
+  .gate input {
+    width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--field); color: var(--chalk); font-size: 1rem; margin-bottom: 14px;
+  }
+  .gate input:focus { outline: 2px solid var(--turf); border-color: var(--turf); }
+  .btn {
+    width: 100%; padding: 13px; border: none; border-radius: 10px; cursor: pointer;
+    background: var(--turf); color: #04120a; font-family: 'Oswald', sans-serif; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.5px; font-size: 1rem; transition: background .15s;
+  }
+  .btn:hover { background: var(--turf-bright); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .err { color: var(--flag); font-size: 0.85rem; margin-top: 12px; min-height: 1em; }
+  .hint { color: var(--chalk-dim); font-size: 0.78rem; margin-top: 14px; line-height: 1.45; }
+
+  /* ---- tabs ---- */
+  .tabs { display: flex; gap: 6px; justify-content: center; margin-bottom: 22px; }
+  .tabs button {
+    padding: 9px 20px; border: 1px solid var(--line); background: var(--field-2);
+    color: var(--chalk-dim); border-radius: 999px; cursor: pointer; font-family: 'Oswald', sans-serif;
+    text-transform: uppercase; letter-spacing: 1px; font-size: 0.85rem; transition: all .15s;
+  }
+  .tabs button.active { background: var(--turf); color: #04120a; border-color: var(--turf-bright); font-weight: 600; }
+
+  .bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-bottom: 18px; flex-wrap: wrap;
+  }
+  .week-nav { display: flex; align-items: center; gap: 10px; }
+  .week-nav button {
+    width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--field-2); color: var(--chalk); cursor: pointer; font-size: 1.1rem;
+  }
+  .week-nav button:disabled { opacity: .35; cursor: default; }
+  .week-label { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 1px; font-size: 1.05rem; }
+  .whoami { font-size: 0.82rem; color: var(--chalk-dim); }
+  .whoami b { color: var(--turf-bright); }
+  .whoami a { color: var(--chalk-dim); text-decoration: underline; cursor: pointer; margin-left: 8px; }
+
+  /* ---- matchup rows ---- */
+  .game {
+    background: var(--field-2); border: 1px solid var(--line); border-radius: 12px;
+    margin-bottom: 12px; overflow: hidden;
+  }
+  .game-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 14px; font-size: 0.72rem; color: var(--chalk-dim);
+    font-family: 'Oswald', sans-serif; letter-spacing: 1px; text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+  }
+  .lock-pill { display: inline-flex; align-items: center; gap: 5px; }
+  .lock-pill.locked { color: var(--flag); }
+  .lock-pill.open { color: var(--turf-bright); }
+  .matchup { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; }
+  .team {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 16px 10px; cursor: pointer; border: 2px solid transparent;
+    transition: background .15s, border-color .15s; position: relative;
+  }
+  .team:hover:not(.disabled) { background: rgba(63,214,126,0.07); }
+  .team.disabled { cursor: default; }
+  .team img { width: 52px; height: 52px; object-fit: contain; filter: drop-shadow(0 2px 4px var(--shadow)); }
+  .team .name { font-family: 'Oswald', sans-serif; font-weight: 500; text-transform: uppercase; letter-spacing: .5px; font-size: 0.9rem; text-align: center; }
+  .team .rec { font-size: 0.72rem; color: var(--chalk-dim); }
+  .team.picked { background: rgba(63,214,126,0.14); border-color: var(--turf-bright); }
+  .team.picked .name { color: var(--turf-bright); }
+  .team.picked::after {
+    content: "✓ PICK"; position: absolute; top: 6px; right: 8px; font-family: 'Oswald', sans-serif;
+    font-size: 0.6rem; letter-spacing: 1px; color: var(--turf-bright); font-weight: 600;
+  }
+  .team.result-win { border-color: var(--whistle); }
+  .team.result-win::before {
+    content: "W"; position: absolute; top: 6px; left: 8px; font-family: 'Oswald', sans-serif;
+    font-size: 0.7rem; color: var(--whistle); font-weight: 700;
+  }
+  .team.miss { opacity: .55; }
+  .vs {
+    display: flex; align-items: center; justify-content: center; padding: 0 6px;
+    font-family: 'Oswald', sans-serif; color: var(--chalk-dim); font-size: 0.8rem;
+    background: var(--field); border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  }
+  .save-row { padding: 14px; }
+  .muted { color: var(--chalk-dim); font-size: 0.85rem; text-align: center; padding: 40px 0; }
+
+  /* ---- standings ---- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 1px; font-size: 0.75rem; color: var(--chalk-dim); }
+  td.num { font-family: 'Oswald', sans-serif; font-size: 1.1rem; text-align: center; }
+  tr.me td { background: rgba(63,214,126,0.06); }
+  .rank { font-family: 'Oswald', sans-serif; font-weight: 700; color: var(--whistle); }
+  .section-label {
+    font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 2px;
+    font-size: 0.8rem; color: var(--turf-bright); margin-bottom: 10px;
+  }
+  .wk-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .wk-toggle button {
+    padding: 7px 14px; border: 1px solid var(--line); background: var(--field-2); color: var(--chalk);
+    border-radius: 8px; cursor: pointer; font-family: 'Oswald', sans-serif; font-size: 0.8rem;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .wk-toggle button:disabled { opacity: .35; cursor: default; }
+  .wk-title { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 1px; font-size: 1rem; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(120%);
+    background: var(--turf); color: #04120a; padding: 12px 24px; border-radius: 999px;
+    font-family: 'Oswald', sans-serif; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+    transition: transform .3s; z-index: 50; font-size: 0.9rem;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.bad { background: var(--flag); color: #fff; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">2026 Season · The League of Three</div>
+    <h1>The Pick'em</h1>
+    <div class="sub">Pick every winner. Each game locks 5 minutes before it kicks off.</div>
+  </header>
+
+  <!-- LOGIN GATE -->
+  <div id="gate" class="gate">
+    <h2>Who's picking?</h2>
+    <div class="who" id="whoButtons"></div>
+    <input type="password" id="pass" placeholder="4-digit PIN" inputmode="numeric"
+           pattern="[0-9]*" maxlength="4" autocomplete="off">
+    <button class="btn" id="loginBtn">Enter</button>
+    <div class="hint" id="regHint">First time? Whatever PIN you enter becomes yours — nobody, including the commissioner, can see it. So don't forget it.</div>
+    <div class="err" id="loginErr"></div>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button class="active" data-tab="picks" id="tabPicks">Make Picks</button>
+      <button data-tab="standings" id="tabStandings">Standings</button>
+    </div>
+
+    <div class="bar">
+      <div class="week-nav">
+        <button id="prevWk">‹</button>
+        <span class="week-label" id="weekLabel">Week —</span>
+        <button id="nextWk">›</button>
+      </div>
+      <div class="whoami" id="whoami"></div>
+    </div>
+
+    <div id="picksView">
+      <div id="games"><div class="muted">Loading this week's slate…</div></div>
+      <div class="save-row hidden" id="saveRow">
+        <button class="btn" id="saveBtn">Lock in my picks</button>
+      </div>
+    </div>
+
+    <div id="standingsView" class="hidden">
+      <div id="standingsBody"><div class="muted">Tallying…</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// These are just the login buttons. They MUST match the PLAYERS secret in Cloudflare
+// (a JSON array like ["Andy","Sam","Pat"]). Edit both to your three names.
+const PLAYERS = ["Andy", "Rick", "Jim"];
+let state = { user: null, token: null, week: null, currentWeek: null, games: [], myPicks: {}, dirty: false };
+
+// ---------- login ----------
+const whoBox = document.getElementById('whoButtons');
+let chosenName = null;
+PLAYERS.forEach(name => {
+  const b = document.createElement('button');
+  b.textContent = name;
+  b.onclick = () => { chosenName = name; [...whoBox.children].forEach(c=>c.classList.remove('sel')); b.classList.add('sel'); };
+  whoBox.appendChild(b);
+});
+
+document.getElementById('loginBtn').onclick = async () => {
+  const err = document.getElementById('loginErr');
+  const pin = document.getElementById('pass').value.trim();
+  if (!chosenName) { err.textContent = "Pick your name first."; return; }
+  if (!/^\d{4}$/.test(pin)) { err.textContent = "PIN must be 4 digits."; return; }
+  err.textContent = "";
+  try {
+    const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ user: chosenName, pin }) });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error || "Wrong PIN."; return; }
+    if (data.justRegistered) toast('PIN set — you\'re in. Remember it!');
+    state.user = chosenName; state.token = data.token;
+    sessionStorage.setItem('pickem', JSON.stringify({ user: chosenName, token: data.token }));
+    startApp();
+  } catch(e) { err.textContent = "Couldn't reach the server. Try again."; }
+};
+document.getElementById('pass').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('loginBtn').click(); });
+
+// resume session
+const saved = sessionStorage.getItem('pickem');
+if (saved) { const s = JSON.parse(saved); state.user = s.user; state.token = s.token; startApp(); }
+
+function startApp() {
+  document.getElementById('gate').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('whoami').innerHTML = `Signed in as <b>${state.user}</b> <a id="logout">sign out</a>`;
+  document.getElementById('logout').onclick = () => { sessionStorage.removeItem('pickem'); location.reload(); };
+  loadWeek(null); // null = current week
+}
+
+// ---------- tabs ----------
+document.getElementById('tabPicks').onclick = () => switchTab('picks');
+document.getElementById('tabStandings').onclick = () => switchTab('standings');
+function switchTab(t) {
+  const picks = t==='picks';
+  document.getElementById('tabPicks').classList.toggle('active', picks);
+  document.getElementById('tabStandings').classList.toggle('active', !picks);
+  document.getElementById('picksView').classList.toggle('hidden', !picks);
+  document.getElementById('standingsView').classList.toggle('hidden', picks);
+  if (!picks) loadStandings();
+}
+
+// ---------- week nav ----------
+document.getElementById('prevWk').onclick = () => { if (state.week>1) loadWeek(state.week-1); };
+document.getElementById('nextWk').onclick = () => { if (state.week<18) loadWeek(state.week+1); };
+
+async function loadWeek(wk) {
+  document.getElementById('games').innerHTML = '<div class="muted">Loading this week\'s slate…</div>';
+  document.getElementById('saveRow').classList.add('hidden');
+  try {
+    const q = wk ? `?week=${wk}` : '';
+    const r = await fetch('/api/week' + q, { headers: authH() });
+    const data = await r.json();
+    state.week = data.week; state.currentWeek = data.currentWeek; state.games = data.games;
+    state.myPicks = data.myPicks || {}; state.dirty = false;
+    document.getElementById('weekLabel').textContent = 'Week ' + data.week;
+    document.getElementById('prevWk').disabled = data.week <= 1;
+    document.getElementById('nextWk').disabled = data.week >= 18;
+    renderGames();
+  } catch(e) {
+    document.getElementById('games').innerHTML = '<div class="muted">Couldn\'t load the schedule. Refresh to retry.</div>';
+  }
+}
+
+function renderGames() {
+  const box = document.getElementById('games');
+  if (!state.games.length) { box.innerHTML = '<div class="muted">No games scheduled for this week yet.</div>'; return; }
+  box.innerHTML = '';
+  let anyOpen = false;
+  state.games.forEach(g => {
+    const locked = g.locked;
+    if (!locked) anyOpen = true;
+    const el = document.createElement('div'); el.className = 'game';
+    el.innerHTML = `
+      <div class="game-head">
+        <span>${g.kickoffLabel}</span>
+        <span class="lock-pill ${locked?'locked':'open'}">${locked ? '🔒 Locked' : '🟢 Open · locks '+g.lockLabel}</span>
+      </div>
+      <div class="matchup">
+        ${teamCell(g, g.away, locked)}
+        <div class="vs">@</div>
+        ${teamCell(g, g.home, locked)}
+      </div>`;
+    box.appendChild(el);
+  });
+  bindTeamClicks();
+  document.getElementById('saveRow').classList.toggle('hidden', !anyOpen);
+}
+
+function teamCell(g, team, locked) {
+  const picked = state.myPicks[g.id] === team.abbr;
+  const isWinner = g.winner && g.winner === team.abbr;
+  const missed = g.winner && picked && g.winner !== team.abbr;
+  let cls = 'team';
+  if (locked || g.winner) cls += ' disabled';
+  if (picked) cls += ' picked';
+  if (isWinner) cls += ' result-win';
+  if (missed) cls += ' miss';
+  return `<div class="${cls}" data-game="${g.id}" data-team="${team.abbr}">
+    <img src="${team.logo}" alt="${team.name}" loading="lazy">
+    <span class="name">${team.name}</span>
+    <span class="rec">${team.record || ''}</span>
+  </div>`;
+}
+
+function bindTeamClicks() {
+  document.querySelectorAll('.team:not(.disabled)').forEach(cell => {
+    cell.onclick = () => {
+      const gid = cell.dataset.game, abbr = cell.dataset.team;
+      state.myPicks[gid] = abbr; state.dirty = true;
+      renderGames();
+    };
+  });
+}
+
+document.getElementById('saveBtn').onclick = async () => {
+  const btn = document.getElementById('saveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/picks', { method:'POST', headers: authH({'Content-Type':'application/json'}),
+      body: JSON.stringify({ week: state.week, picks: state.myPicks }) });
+    const data = await r.json();
+    if (!r.ok) { toast(data.error || 'Some picks were locked and skipped.', true); }
+    else { toast('Picks locked in.'); }
+    if (data.myPicks) state.myPicks = data.myPicks;
+    renderGames();
+  } catch(e) { toast('Save failed — try again.', true); }
+  btn.disabled = false; btn.textContent = 'Lock in my picks';
+};
+
+// ---------- standings ----------
+let standingsData = null;
+let shownWeekIdx = 0;
+
+async function loadStandings() {
+  const box = document.getElementById('standingsBody');
+  box.innerHTML = '<div class="muted">Tallying…</div>';
+  try {
+    const r = await fetch('/api/standings', { headers: authH() });
+    standingsData = await r.json();
+    shownWeekIdx = 0;
+    renderStandings();
+  } catch(e) { box.innerHTML = '<div class="muted">Couldn\'t load standings.</div>'; }
+}
+
+function seasonTable(rows) {
+  const body = rows.map((s,i) => `
+    <tr class="${s.user===state.user?'me':''}">
+      <td class="rank">${i+1}</td>
+      <td>${s.user}</td>
+      <td class="num">${s.wins}</td>
+      <td class="num">${s.losses}</td>
+      <td class="num">${s.pct}</td>
+    </tr>`).join('');
+  return `<table><thead><tr><th>#</th><th>Player</th><th>W</th><th>L</th><th>Pct</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function weekBlock() {
+  const weeks = standingsData.weeks || [];
+  if (!weeks.length) return '<div class="muted">No completed weeks yet.</div>';
+  const w = weeks[shownWeekIdx];
+  const nav = `
+    <div class="wk-toggle">
+      <button id="wkPrev" ${shownWeekIdx>=weeks.length-1?'disabled':''}>‹ older</button>
+      <span class="wk-title">Week ${w.week}</span>
+      <button id="wkNext" ${shownWeekIdx<=0?'disabled':''}>newer ›</button>
+    </div>`;
+  let body;
+  if (!w.revealed) {
+    body = `<div class="muted">Week ${w.week} results are hidden until <b>${w.revealLabel}</b>.<br>Check back after 7am Tuesday.</div>`;
+  } else {
+    const rows = w.results.map((s,i) => `
+      <tr class="${s.user===state.user?'me':''}">
+        <td class="rank">${i+1}</td><td>${s.user}</td>
+        <td class="num">${s.wins}</td><td class="num">${s.losses}</td>
+      </tr>`).join('');
+    body = `<table><thead><tr><th>#</th><th>Player</th><th>W</th><th>L</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+  return nav + body;
+}
+
+function renderStandings() {
+  const box = document.getElementById('standingsBody');
+  box.innerHTML = `
+    <div class="section-label">Season · through Week ${standingsData.throughWeek}</div>
+    ${seasonTable(standingsData.season)}
+    <div class="section-label" style="margin-top:26px;">Weekly results</div>
+    <div id="weekBlock">${weekBlock()}</div>`;
+  const prev = document.getElementById('wkPrev'), next = document.getElementById('wkNext');
+  if (prev) prev.onclick = () => { if (shownWeekIdx < standingsData.weeks.length-1){ shownWeekIdx++; document.getElementById('weekBlock').innerHTML = weekBlock(); rebindWk(); } };
+  if (next) next.onclick = () => { if (shownWeekIdx > 0){ shownWeekIdx--; document.getElementById('weekBlock').innerHTML = weekBlock(); rebindWk(); } };
+}
+function rebindWk() {
+  const prev = document.getElementById('wkPrev'), next = document.getElementById('wkNext');
+  if (prev) prev.onclick = () => { if (shownWeekIdx < standingsData.weeks.length-1){ shownWeekIdx++; document.getElementById('weekBlock').innerHTML = weekBlock(); rebindWk(); } };
+  if (next) next.onclick = () => { if (shownWeekIdx > 0){ shownWeekIdx--; document.getElementById('weekBlock').innerHTML = weekBlock(); rebindWk(); } };
+}
+
+// ---------- helpers ----------
+function authH(extra={}) { return Object.assign({ 'Authorization': 'Bearer ' + (state.token||'') }, extra); }
+function toast(msg, bad=false) {
+  const t = document.getElementById('toast'); t.textContent = msg;
+  t.classList.toggle('bad', bad); t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2600);
+}
+</script>
+</body>
+</html>
