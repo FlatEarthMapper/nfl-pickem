@@ -56,13 +56,22 @@ function zonedToUtc(y, mo, d, h, mi) {
   return Date.UTC(y, mo - 1, d, h, mi) - offMin * 60000;
 }
 
+// Central offset in minutes at a given instant (e.g. -300 for CDT, -360 for CST).
+// Computed without relying on the newer 'shortOffset' Intl option: we read the
+// wall-clock time that America/Chicago shows for this instant, compare it to the
+// UTC wall clock for the same instant, and the difference IS the offset. Works on
+// any runtime that has basic Intl timezone support (which Workers does).
 function centralOffsetMinutes(ms) {
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago', timeZoneName: 'shortOffset',
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  });
-  const name = dtf.formatToParts(new Date(ms)).find(p => p.type === 'timeZoneName')?.value || 'GMT-6';
-  const m = name.match(/GMT([+-]\d{1,2})(?::?(\d{2}))?/);
-  if (!m) return -360;
-  return (parseInt(m[1],10) * 60) + (m[1].startsWith('-') ? -(+(m[2]||0)) : +(m[2]||0));
+  const d = new Date(ms);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(d).reduce((a, p) => (a[p.type] = p.value, a), {});
+  // Build a UTC timestamp from the Chicago wall-clock reading.
+  let hh = parseInt(parts.hour, 10);
+  if (hh === 24) hh = 0; // some engines emit '24' for midnight
+  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, hh, +parts.minute, +parts.second);
+  // Difference between what Chicago's clock said and true UTC = the offset.
+  return Math.round((asUTC - ms) / 60000);
 }
