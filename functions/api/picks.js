@@ -54,7 +54,7 @@ async function getSlate(env, week) {
   const cached = await env.PICKS.get(cacheKey, 'json');
   if (cached && (Date.now() - cached.fetchedAt) < 60 * 60000) return withLocks(cached);
 
-  const resp = await fetch(`${ESPN}?seasontype=2&week=${week}`, { cf: { cacheTtl: 300 } });
+  const resp = await fetch(`${ESPN}?seasontype=2&week=${week}`, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PickemApp/1.0)', 'Accept': 'application/json' } });
   if (!resp.ok) { if (cached) return withLocks(cached); throw new Error('ESPN fetch failed'); }
   const data = await resp.json();
   const games = (data.events || []).map(ev => {
