@@ -48,10 +48,15 @@ async function getSlate(env, wantWeek) {
   }
 
   const espnUrl = wantWeek ? `${ESPN}?seasontype=2&week=${wantWeek}` : ESPN;
-  const resp = await fetch(espnUrl, { cf: { cacheTtl: 300 } });
+  const resp = await fetch(espnUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; PickemApp/1.0)',
+      'Accept': 'application/json',
+    },
+  });
   if (!resp.ok) {
     if (cached) return cached;           // serve stale on failure
-    throw new Error('ESPN fetch failed');
+    throw new Error(`ESPN fetch failed (status ${resp.status})`);
   }
   const data = await resp.json();
   const week = data.week?.number || wantWeek || 1;
