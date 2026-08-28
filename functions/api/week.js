@@ -12,27 +12,32 @@ export async function onRequestGet({ request, env }) {
   const user = await authUser(request, env);
   if (!user) return json({ error: 'Not signed in.' }, 401);
 
-  const url = new URL(request.url);
-  let week = parseInt(url.searchParams.get('week') || '', 10);
+  try {
+    const url = new URL(request.url);
+    let week = parseInt(url.searchParams.get('week') || '', 10);
 
-  const slate = await getSlate(env, isNaN(week) ? null : week);
-  const now = Date.now();
+    const slate = await getSlate(env, isNaN(week) ? null : week);
+    const now = Date.now();
 
-  // Attach lock state, based on server time (authoritative).
-  const games = slate.games.map(g => {
-    const lockMs = g.lockMs;
-    return {
-      ...g,
-      locked: now >= lockMs,
-      lockLabel: fmtCentral(lockMs, true),
-    };
-  });
+    // Attach lock state, based on server time (authoritative).
+    const games = slate.games.map(g => {
+      const lockMs = g.lockMs;
+      return {
+        ...g,
+        locked: now >= lockMs,
+        lockLabel: fmtCentral(lockMs, true),
+      };
+    });
 
-  // Merge this user's saved picks for the week.
-  const picksKey = `picks:2026:wk${slate.week}:${user}`;
-  const myPicks = (await env.PICKS.get(picksKey, 'json')) || {};
+    // Merge this user's saved picks for the week.
+    const picksKey = `picks:2026:wk${slate.week}:${user}`;
+    const myPicks = (await env.PICKS.get(picksKey, 'json')) || {};
 
-  return json({ week: slate.week, currentWeek: slate.currentWeek, games, myPicks });
+    return json({ week: slate.week, currentWeek: slate.currentWeek, games, myPicks });
+  } catch (e) {
+    // Surface the real reason instead of a bare 500.
+    return json({ error: 'schedule_load_failed', detail: String(e && e.message || e) }, 500);
+  }
 }
 
 async function getSlate(env, wantWeek) {
@@ -53,23 +58,30 @@ async function getSlate(env, wantWeek) {
   const currentWeek = data.week?.number || week;
 
   const games = (data.events || []).map(ev => {
-    const comp = ev.competitions[0];
-    const home = comp.competitors.find(c => c.homeAway === 'home');
-    const away = comp.competitors.find(c => c.homeAway === 'away');
-    const kickoffMs = new Date(ev.date).getTime();
-    const winner = comp.status?.type?.completed
-      ? (home.winner ? home.team.abbreviation : (away.winner ? away.team.abbreviation : null))
-      : null;
-    return {
-      id: ev.id,
-      kickoffMs,
-      kickoffLabel: fmtCentral(kickoffMs, false),
-      lockMs: lockTimeFor(kickoffMs),
-      winner,
-      home: teamObj(home),
-      away: teamObj(away),
-    };
-  }).sort((a,b) => a.kickoffMs - b.kickoffMs);
+    try {
+      const comp = ev.competitions && ev.competitions[0];
+      if (!comp || !Array.isArray(comp.competitors)) return null;
+      const home = comp.competitors.find(c => c.homeAway === 'home');
+      const away = comp.competitors.find(c => c.homeAway === 'away');
+      if (!home || !away || !home.team || !away.team) return null;
+      const kickoffMs = new Date(ev.date).getTime();
+      if (!isFinite(kickoffMs)) return null;
+      const winner = comp.status?.type?.completed
+        ? (home.winner ? home.team.abbreviation : (away.winner ? away.team.abbreviation : null))
+        : null;
+      return {
+        id: ev.id,
+        kickoffMs,
+        kickoffLabel: fmtCentral(kickoffMs, false),
+        lockMs: lockTimeFor(kickoffMs),
+        winner,
+        home: teamObj(home),
+        away: teamObj(away),
+      };
+    } catch (e) {
+      return null; // skip any event we can't parse rather than failing the whole week
+    }
+  }).filter(Boolean).sort((a,b) => a.kickoffMs - b.kickoffMs);
 
   const slate = { week, currentWeek, games, fetchedAt: Date.now() };
   // cache ~65 min; short enough that scores/records refresh, long enough to spare ESPN
