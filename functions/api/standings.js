@@ -73,7 +73,7 @@ async function currentWeek(env) {
   const cached = await env.PICKS.get('meta:currentWeek', 'json');
   if (cached && (Date.now() - cached.at) < 30 * 60000) return cached.week;
   try {
-    const r = await fetch(ESPN, { cf: { cacheTtl: 300 } });
+    const r = await fetch(ESPN, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PickemApp/1.0)', 'Accept': 'application/json' } });
     const d = await r.json();
     const week = d.week?.number || 1;
     await env.PICKS.put('meta:currentWeek', JSON.stringify({ week, at: Date.now() }), { expirationTtl: 1800 });
@@ -89,7 +89,7 @@ async function weekResults(env, wk) {
 
   let data;
   try {
-    const r = await fetch(`${ESPN}?seasontype=2&week=${wk}`, { cf: { cacheTtl: 300 } });
+    const r = await fetch(`${ESPN}?seasontype=2&week=${wk}`, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PickemApp/1.0)', 'Accept': 'application/json' } });
     data = await r.json();
   } catch { return cached || { results: {}, anyKickoff: null, allFinal: false }; }
 
