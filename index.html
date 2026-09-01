@@ -193,13 +193,7 @@
   .board-pick.no { color: var(--flag); }
   .board-nopick { color: var(--chalk-dim); font-size: 0.82rem; font-style: italic; }
 
-  /* ---- help button + FAQ modal ---- */
-  .help-btn {
-    width: 34px; height: 34px; padding: 0; border-radius: 999px; border: 1px solid var(--line);
-    background: var(--field-2); color: var(--chalk-dim); cursor: pointer; font-family: 'Oswald', sans-serif;
-    font-size: 1.1rem; font-weight: 600; margin-left: auto; flex: 0 0 auto; transition: all .15s;
-  }
-  .help-btn:hover { border-color: var(--turf); color: var(--turf-bright); }
+  /* ---- FAQ modal ---- */
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 100;
     display: flex; align-items: center; justify-content: center; padding: 20px;
@@ -262,7 +256,6 @@
       <button class="active" data-tab="picks" id="tabPicks">Make Picks</button>
       <button data-tab="board" id="tabBoard">The Board</button>
       <button data-tab="standings" id="tabStandings">Standings</button>
-      <button class="help-btn" id="helpBtn" title="How it works" aria-label="How it works">?</button>
     </div>
 
     <div class="bar">
@@ -377,9 +370,10 @@ if (saved) { const s = JSON.parse(saved); state.user = s.user; state.token = s.t
 function startApp() {
   document.getElementById('gate').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
-  document.getElementById('whoami').innerHTML = `Signed in as <b>${state.user}</b> <a id="exportLink">download picks</a> <a id="logout">sign out</a>`;
+  document.getElementById('whoami').innerHTML = `Signed in as <b>${state.user}</b> <a id="exportLink">download picks</a> <a id="faqLink">faq</a> <a id="logout">sign out</a>`;
   document.getElementById('logout').onclick = () => { sessionStorage.removeItem('pickem'); location.reload(); };
   document.getElementById('exportLink').onclick = exportPicks;
+  document.getElementById('faqLink').onclick = () => document.getElementById('helpModal').classList.remove('hidden');
   loadWeek(null); // null = current week
 }
 
@@ -409,11 +403,10 @@ async function exportPicks() {
 }
 
 // ---------- help / FAQ modal ----------
+// (The "faq" link that opens this is wired in startApp, next to download/sign out.)
 (function() {
   const modal = document.getElementById('helpModal');
-  const open = () => modal.classList.remove('hidden');
   const close = () => modal.classList.add('hidden');
-  document.getElementById('helpBtn').onclick = open;
   document.getElementById('helpClose').onclick = close;
   modal.onclick = (e) => { if (e.target === modal) close(); }; // click backdrop to close
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
