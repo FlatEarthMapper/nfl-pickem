@@ -2,7 +2,7 @@
 // Backed by TheSportsDB per-round fetch (see _nfl.js).
 
 import { authUser } from './_auth.js';
-import { lockTimeFor } from './_locks.js';
+import { lockTimeForGame } from './_locks.js';
 import { getWeek, currentWeek, SEASON, NUM_WEEKS } from './_nfl.js';
 
 export async function onRequestGet({ request, env }) {
@@ -19,7 +19,7 @@ export async function onRequestGet({ request, env }) {
     const weekGames = await getWeek(env, week);
     const now = Date.now();
     const games = weekGames.map(g => {
-      const lockMs = lockTimeFor(g.kickoffMs);
+      const lockMs = lockTimeForGame(g, weekGames, week);
       return {
         id: g.id,
         kickoffMs: g.kickoffMs,
