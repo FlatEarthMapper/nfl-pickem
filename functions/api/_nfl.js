@@ -19,7 +19,7 @@ const LEAGUE = '4391';
 // '2025' = last season, full data, use it to TEST right now.
 // '2026' = the real season (regular-season rounds populate ~early Sept 2026).
 // ====================================================================
-export const SEASON = '2025';
+export const SEASON = '2026';
 
 const BASE = `https://www.thesportsdb.com/api/v1/json/${KEY}`;
 const WEEK_CACHE_SECONDS = 60 * 60;       // cache each week's games for an hour
