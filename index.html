@@ -193,6 +193,38 @@
   .board-pick.no { color: var(--flag); }
   .board-nopick { color: var(--chalk-dim); font-size: 0.82rem; font-style: italic; }
 
+  /* ---- help button + FAQ modal ---- */
+  .help-btn {
+    width: 34px; height: 34px; padding: 0; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--field-2); color: var(--chalk-dim); cursor: pointer; font-family: 'Oswald', sans-serif;
+    font-size: 1.1rem; font-weight: 600; margin-left: auto; flex: 0 0 auto; transition: all .15s;
+  }
+  .help-btn:hover { border-color: var(--turf); color: var(--turf-bright); }
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 100;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal {
+    background: var(--field-2); border: 1px solid var(--line); border-radius: 14px;
+    max-width: 540px; width: 100%; max-height: 85vh; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 18px 20px; border-bottom: 1px solid var(--line);
+  }
+  .modal-head h2 { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 1px; font-size: 1.15rem; }
+  .modal-close {
+    width: 32px; height: 32px; border: none; background: transparent; color: var(--chalk-dim);
+    font-size: 1.6rem; line-height: 1; cursor: pointer; border-radius: 8px;
+  }
+  .modal-close:hover { color: var(--chalk); background: var(--field); }
+  .modal-body { padding: 18px 20px; overflow-y: auto; }
+  .faq-q { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: .5px;
+    font-size: 0.9rem; color: var(--turf-bright); margin: 16px 0 5px; }
+  .faq-q:first-child { margin-top: 0; }
+  .faq-a { font-size: 0.9rem; color: var(--chalk); line-height: 1.5; }
+
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(120%);
     background: var(--turf); color: #04120a; padding: 12px 24px; border-radius: 999px;
@@ -230,6 +262,7 @@
       <button class="active" data-tab="picks" id="tabPicks">Make Picks</button>
       <button data-tab="board" id="tabBoard">The Board</button>
       <button data-tab="standings" id="tabStandings">Standings</button>
+      <button class="help-btn" id="helpBtn" title="How it works" aria-label="How it works">?</button>
     </div>
 
     <div class="bar">
@@ -260,6 +293,47 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- FAQ / How it works modal -->
+<div class="modal-overlay hidden" id="helpModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>How The Pick'em Works</h2>
+      <button class="modal-close" id="helpClose" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="faq-q">How do I log in?</div>
+      <div class="faq-a">Tap your name, then enter your 4-digit PIN. The first time you ever log in, whatever PIN you type becomes yours — so pick something you'll remember. Nobody, including the commissioner, can see your PIN.</div>
+
+      <div class="faq-q">I forgot my PIN. What do I do?</div>
+      <div class="faq-a">Ask the commissioner to reset it. Your picks and standing are safe — a reset only clears your PIN, and your next login sets a new one.</div>
+
+      <div class="faq-q">How do I make picks?</div>
+      <div class="faq-a">On the "Make Picks" tab, tap the team you think will win each game. The team turns green. Tap the other team to switch. When you're done, hit "Save My Picks."</div>
+
+      <div class="faq-q">Can I change a pick after I save it?</div>
+      <div class="faq-a">Yes — saving isn't final. You can change any pick right up until that game locks. Just hit "Save My Picks" again after any change.</div>
+
+      <div class="faq-q">When do picks lock?</div>
+      <div class="faq-a">Each game locks 5 minutes before it kicks off, so you can pick game-by-game through the week. <b>Exception:</b> in Weeks 17 &amp; 18, all games lock 5 minutes before the first game of that week. Once a game locks, that pick is frozen.</div>
+
+      <div class="faq-q">Can I see everyone else's picks?</div>
+      <div class="faq-a">Yes — that's "The Board" tab. Tap any player's name to see their full slate. Everyone's picks are visible to everyone, live, as they're made. There's no hiding your pick until you're ready.</div>
+
+      <div class="faq-q">When do I get credit for a correct pick?</div>
+      <div class="faq-a">As soon as the game goes final. Both the weekly and season standings update automatically through the day as games end — no waiting until the week is over. (There can be a short delay of a few minutes after the final whistle.)</div>
+
+      <div class="faq-q">Where do I see the standings?</div>
+      <div class="faq-a">The "Standings" tab shows season totals (overall record and ranking) plus a week-by-week breakdown you can toggle through. Both update live as games finish.</div>
+
+      <div class="faq-q">Can I download the picks?</div>
+      <div class="faq-a">Yes — the "download picks" link (top right) gives you a CSV of every pick for the season so far, which opens in Excel or Google Sheets. Anyone can download it.</div>
+
+      <div class="faq-q">Where does the schedule come from?</div>
+      <div class="faq-a">Game times and results come from a live sports data feed. If a game time looks wrong or a result is slow to update, it's usually the feed catching up — it'll correct itself.</div>
+    </div>
+  </div>
+</div>
 
 <script>
 // These are just the login buttons. They MUST match the PLAYERS secret in Cloudflare
@@ -333,6 +407,17 @@ async function exportPicks() {
   }
   link.textContent = orig;
 }
+
+// ---------- help / FAQ modal ----------
+(function() {
+  const modal = document.getElementById('helpModal');
+  const open = () => modal.classList.remove('hidden');
+  const close = () => modal.classList.add('hidden');
+  document.getElementById('helpBtn').onclick = open;
+  document.getElementById('helpClose').onclick = close;
+  modal.onclick = (e) => { if (e.target === modal) close(); }; // click backdrop to close
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+})();
 
 // ---------- tabs ----------
 document.getElementById('tabPicks').onclick = () => switchTab('picks');
