@@ -1,7 +1,7 @@
 // The one place the lock rule lives. Change it here and both /week and /picks obey.
 //
 // RULE: every game locks exactly 5 minutes before its own scheduled kickoff.
-// This uses each game's real start time from ESPN, so odd schedules — Thanksgiving,
+// This uses each game's real start time from the schedule feed, so odd schedules — Thanksgiving,
 // Saturday slates, international morning games, Christmas — all just work with no
 // special cases.
 
