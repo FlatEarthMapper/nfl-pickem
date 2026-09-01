@@ -1,10 +1,9 @@
-// GET /api/week[?week=N]  ->  { week, currentWeek, games:[...], myPicks:{gameId:abbr} }
-// Backed by TheSportsDB (see _nfl.js). Computes each game's lock time and merges
-// the signed-in user's saved picks for the week.
+// GET /api/week[?week=N]  ->  { week, currentWeek, games:[...], myPicks, seasonStarted }
+// Backed by TheSportsDB per-round fetch (see _nfl.js).
 
 import { authUser } from './_auth.js';
 import { lockTimeFor } from './_locks.js';
-import { getSeason, currentWeekOf, gamesForWeek, weeksPresent, SEASON } from './_nfl.js';
+import { getWeek, currentWeek, SEASON, NUM_WEEKS } from './_nfl.js';
 
 export async function onRequestGet({ request, env }) {
   const user = await authUser(request, env);
@@ -14,12 +13,12 @@ export async function onRequestGet({ request, env }) {
     const url = new URL(request.url);
     let want = parseInt(url.searchParams.get('week') || '', 10);
 
-    const season = await getSeason(env);
-    const currentWeek = currentWeekOf(season);
-    const week = isNaN(want) ? currentWeek : Math.min(18, Math.max(1, want));
+    const cur = await currentWeek(env);
+    const week = isNaN(want) ? cur : Math.min(NUM_WEEKS, Math.max(1, want));
 
+    const weekGames = await getWeek(env, week);
     const now = Date.now();
-    const games = gamesForWeek(season, week).map(g => {
+    const games = weekGames.map(g => {
       const lockMs = lockTimeFor(g.kickoffMs);
       return {
         id: g.id,
@@ -37,7 +36,7 @@ export async function onRequestGet({ request, env }) {
     const picksKey = `picks:${SEASON}:wk${week}:${user}`;
     const myPicks = (await env.PICKS.get(picksKey, 'json')) || {};
 
-    return json({ week, currentWeek, games, myPicks, seasonStarted: weeksPresent(season).length > 0 });
+    return json({ week, currentWeek: cur, games, myPicks, seasonStarted: games.length > 0 });
   } catch (e) {
     return json({ error: 'schedule_load_failed', detail: String(e && e.message || e) }, 500);
   }
