@@ -2,7 +2,7 @@
 // Authoritative lock enforcement using the live per-week schedule.
 
 import { authUser } from './_auth.js';
-import { lockTimeFor } from './_locks.js';
+import { lockTimeForGame } from './_locks.js';
 import { getWeek, SEASON } from './_nfl.js';
 
 export async function onRequestPost({ request, env }) {
@@ -29,7 +29,7 @@ export async function onRequestPost({ request, env }) {
     for (const [gid, abbr] of Object.entries(incoming)) {
       const g = gameById[gid];
       if (!g) { skipped.push(gid); continue; }
-      if (now >= lockTimeFor(g.kickoffMs)) { skipped.push(gid); continue; }
+      if (now >= lockTimeForGame(g, weekGames, week)) { skipped.push(gid); continue; }
       const valid = abbr === g.home.abbr || abbr === g.away.abbr;
       if (!valid) { skipped.push(gid); continue; }
       merged[gid] = abbr;
