@@ -1,12 +1,10 @@
 // GET /api/week[?week=N]  ->  { week, currentWeek, games:[...], myPicks:{gameId:abbr} }
-// Fetches the NFL slate from ESPN's public (unofficial) endpoint, caches it in KV
-// for an hour so we don't hammer ESPN, and computes each game's lock time.
+// Backed by TheSportsDB (see _nfl.js). Computes each game's lock time and merges
+// the signed-in user's saved picks for the week.
 
 import { authUser } from './_auth.js';
 import { lockTimeFor } from './_locks.js';
-
-const ESPN = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
-const CACHE_MINUTES = 60;
+import { getSeason, currentWeekOf, gamesForWeek, weeksPresent, SEASON } from './_nfl.js';
 
 export async function onRequestGet({ request, env }) {
   const user = await authUser(request, env);
@@ -14,97 +12,37 @@ export async function onRequestGet({ request, env }) {
 
   try {
     const url = new URL(request.url);
-    let week = parseInt(url.searchParams.get('week') || '', 10);
+    let want = parseInt(url.searchParams.get('week') || '', 10);
 
-    const slate = await getSlate(env, isNaN(week) ? null : week);
+    const season = await getSeason(env);
+    const currentWeek = currentWeekOf(season);
+    const week = isNaN(want) ? currentWeek : Math.min(18, Math.max(1, want));
+
     const now = Date.now();
-
-    // Attach lock state, based on server time (authoritative).
-    const games = slate.games.map(g => {
-      const lockMs = g.lockMs;
+    const games = gamesForWeek(season, week).map(g => {
+      const lockMs = lockTimeFor(g.kickoffMs);
       return {
-        ...g,
+        id: g.id,
+        kickoffMs: g.kickoffMs,
+        kickoffLabel: fmtCentral(g.kickoffMs, false),
+        lockMs,
         locked: now >= lockMs,
         lockLabel: fmtCentral(lockMs, true),
+        winner: g.winner,
+        home: { abbr: g.home.abbr, name: g.home.name, logo: g.homeLogo, record: '' },
+        away: { abbr: g.away.abbr, name: g.away.name, logo: g.awayLogo, record: '' },
       };
     });
 
-    // Merge this user's saved picks for the week.
-    const picksKey = `picks:2026:wk${slate.week}:${user}`;
+    const picksKey = `picks:${SEASON}:wk${week}:${user}`;
     const myPicks = (await env.PICKS.get(picksKey, 'json')) || {};
 
-    return json({ week: slate.week, currentWeek: slate.currentWeek, games, myPicks });
+    return json({ week, currentWeek, games, myPicks, seasonStarted: weeksPresent(season).length > 0 });
   } catch (e) {
-    // Surface the real reason instead of a bare 500.
     return json({ error: 'schedule_load_failed', detail: String(e && e.message || e) }, 500);
   }
 }
 
-async function getSlate(env, wantWeek) {
-  const cacheKey = wantWeek ? `slate:2026:wk${wantWeek}` : 'slate:2026:current';
-  const cached = await env.PICKS.get(cacheKey, 'json');
-  if (cached && (Date.now() - cached.fetchedAt) < CACHE_MINUTES * 60000) {
-    return cached;
-  }
-
-  const espnUrl = wantWeek ? `${ESPN}?seasontype=2&week=${wantWeek}` : ESPN;
-  const resp = await fetch(espnUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; PickemApp/1.0)',
-      'Accept': 'application/json',
-    },
-  });
-  if (!resp.ok) {
-    if (cached) return cached;           // serve stale on failure
-    throw new Error(`ESPN fetch failed (status ${resp.status})`);
-  }
-  const data = await resp.json();
-  const week = data.week?.number || wantWeek || 1;
-  const currentWeek = data.week?.number || week;
-
-  const games = (data.events || []).map(ev => {
-    try {
-      const comp = ev.competitions && ev.competitions[0];
-      if (!comp || !Array.isArray(comp.competitors)) return null;
-      const home = comp.competitors.find(c => c.homeAway === 'home');
-      const away = comp.competitors.find(c => c.homeAway === 'away');
-      if (!home || !away || !home.team || !away.team) return null;
-      const kickoffMs = new Date(ev.date).getTime();
-      if (!isFinite(kickoffMs)) return null;
-      const winner = comp.status?.type?.completed
-        ? (home.winner ? home.team.abbreviation : (away.winner ? away.team.abbreviation : null))
-        : null;
-      return {
-        id: ev.id,
-        kickoffMs,
-        kickoffLabel: fmtCentral(kickoffMs, false),
-        lockMs: lockTimeFor(kickoffMs),
-        winner,
-        home: teamObj(home),
-        away: teamObj(away),
-      };
-    } catch (e) {
-      return null; // skip any event we can't parse rather than failing the whole week
-    }
-  }).filter(Boolean).sort((a,b) => a.kickoffMs - b.kickoffMs);
-
-  const slate = { week, currentWeek, games, fetchedAt: Date.now() };
-  // cache ~65 min; short enough that scores/records refresh, long enough to spare ESPN
-  await env.PICKS.put(cacheKey, JSON.stringify(slate), { expirationTtl: 65 * 60 });
-  return slate;
-}
-
-function teamObj(c) {
-  const t = c.team;
-  return {
-    abbr: t.abbreviation,
-    name: t.shortDisplayName || t.name,
-    logo: t.logo || `https://a.espncdn.com/i/teamlogos/nfl/500/${t.abbreviation.toLowerCase()}.png`,
-    record: (c.records && c.records[0] && c.records[0].summary) || '',
-  };
-}
-
-// Format an epoch ms as US Central time.
 function fmtCentral(ms, timeOnly) {
   const opts = timeOnly
     ? { timeZone: 'America/Chicago', weekday: 'short', hour: 'numeric', minute: '2-digit' }
