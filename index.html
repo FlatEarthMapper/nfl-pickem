@@ -301,9 +301,35 @@ if (saved) { const s = JSON.parse(saved); state.user = s.user; state.token = s.t
 function startApp() {
   document.getElementById('gate').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
-  document.getElementById('whoami').innerHTML = `Signed in as <b>${state.user}</b> <a id="logout">sign out</a>`;
+  document.getElementById('whoami').innerHTML = `Signed in as <b>${state.user}</b> <a id="exportLink">download picks</a> <a id="logout">sign out</a>`;
   document.getElementById('logout').onclick = () => { sessionStorage.removeItem('pickem'); location.reload(); };
+  document.getElementById('exportLink').onclick = exportPicks;
   loadWeek(null); // null = current week
+}
+
+async function exportPicks() {
+  const link = document.getElementById('exportLink');
+  const orig = link.textContent;
+  link.textContent = 'downloading…';
+  try {
+    const r = await fetch('/api/export', { headers: authH() });
+    if (!r.ok) { toast('Export failed.', true); link.textContent = orig; return; }
+    const blob = await r.blob();
+    // Pull filename from the response header, fall back to a default.
+    let filename = 'pickem-picks.csv';
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    if (m) filename = m[1];
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    toast('Export failed — try again.', true);
+  }
+  link.textContent = orig;
 }
 
 // ---------- tabs ----------
