@@ -1,11 +1,9 @@
-// POST /api/picks  { week, picks: { gameId: abbr } }  ->  { myPicks, skipped:[gameId] }
-// Authoritative lock enforcement: recomputes each game's lock from the live season
-// data and refuses to write a pick for any game past its deadline, or for a team
-// not actually in that game. The browser cannot lie its way past this.
+// POST /api/picks  { week, picks: { gameId: abbr } }  ->  { myPicks, skipped }
+// Authoritative lock enforcement using the live per-week schedule.
 
 import { authUser } from './_auth.js';
 import { lockTimeFor } from './_locks.js';
-import { getSeason, gamesForWeek, SEASON } from './_nfl.js';
+import { getWeek, SEASON } from './_nfl.js';
 
 export async function onRequestPost({ request, env }) {
   const user = await authUser(request, env);
@@ -18,10 +16,10 @@ export async function onRequestPost({ request, env }) {
   if (isNaN(week)) return json({ error: 'Missing week.' }, 400);
 
   try {
-    const season = await getSeason(env);
+    const weekGames = await getWeek(env, week);
     const now = Date.now();
     const gameById = {};
-    for (const g of gamesForWeek(season, week)) gameById[g.id] = g;
+    for (const g of weekGames) gameById[g.id] = g;
 
     const picksKey = `picks:${SEASON}:wk${week}:${user}`;
     const existing = (await env.PICKS.get(picksKey, 'json')) || {};
@@ -30,15 +28,14 @@ export async function onRequestPost({ request, env }) {
 
     for (const [gid, abbr] of Object.entries(incoming)) {
       const g = gameById[gid];
-      if (!g) { skipped.push(gid); continue; }                      // unknown game
-      if (now >= lockTimeFor(g.kickoffMs)) { skipped.push(gid); continue; } // locked
+      if (!g) { skipped.push(gid); continue; }
+      if (now >= lockTimeFor(g.kickoffMs)) { skipped.push(gid); continue; }
       const valid = abbr === g.home.abbr || abbr === g.away.abbr;
-      if (!valid) { skipped.push(gid); continue; }                   // team not in game
+      if (!valid) { skipped.push(gid); continue; }
       merged[gid] = abbr;
     }
 
     await env.PICKS.put(picksKey, JSON.stringify(merged));
-
     return json({
       myPicks: merged,
       skipped,
