@@ -242,7 +242,7 @@
     <div id="picksView">
       <div id="games"><div class="muted">Loading this week's slate…</div></div>
       <div class="save-row hidden" id="saveRow">
-        <button class="btn" id="saveBtn">Lock in my picks</button>
+        <button class="btn" id="saveBtn">Save My Picks</button>
       </div>
     </div>
 
@@ -406,7 +406,7 @@ document.getElementById('saveBtn').onclick = async () => {
     if (data.myPicks) state.myPicks = data.myPicks;
     renderGames();
   } catch(e) { toast('Save failed — try again.', true); }
-  btn.disabled = false; btn.textContent = 'Lock in my picks';
+  btn.disabled = false; btn.textContent = 'Save My Picks';
 };
 
 // ---------- the board (everyone's picks) ----------
