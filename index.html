@@ -503,9 +503,7 @@ function weekBlock() {
       <button id="wkNext" ${shownWeekIdx<=0?'disabled':''}>newer ›</button>
     </div>`;
   let body;
-  if (!w.revealed) {
-    body = `<div class="muted">Week ${w.week} results are hidden until <b>${w.revealLabel}</b>.<br>Check back after 7am Tuesday.</div>`;
-  } else {
+  {
     const rows = w.results.map((s,i) => `
       <tr class="${s.user===state.user?'me':''}">
         <td class="rank">${i+1}</td><td>${s.user}</td>
