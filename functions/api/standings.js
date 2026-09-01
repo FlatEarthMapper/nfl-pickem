@@ -1,15 +1,9 @@
-// GET /api/standings  ->  {
-//   season:  [ {user, wins, losses, pct} ],          // always live, all final games
-//   weeks:   [ {week, revealed, revealLabel,          // per-week, gated to 7am CT Tue
-//                results:[ {user, wins, losses} ] } ],
-//   throughWeek
-// }
-// Backed by TheSportsDB (see _nfl.js). Season totals are always current. Each week's
-// individual breakdown is hidden until 7:00am CT the Tuesday after that week's games.
+// GET /api/standings  ->  { season:[...], weeks:[...], throughWeek }
+// Season totals always live; each week's per-player breakdown gated to 7am CT Tue.
 
 import { authUser } from './_auth.js';
 import { revealTimeFor } from './_locks.js';
-import { getSeason, currentWeekOf, gamesForWeek, weeksPresent, SEASON } from './_nfl.js';
+import { getWeek, currentWeek, SEASON } from './_nfl.js';
 
 export async function onRequestGet({ request, env }) {
   const user = await authUser(request, env);
@@ -20,18 +14,17 @@ export async function onRequestGet({ request, env }) {
     try { players = JSON.parse(env.PLAYERS || '[]'); } catch { players = []; }
     if (!Array.isArray(players)) players = [];
 
-    const season = await getSeason(env);
     const now = Date.now();
-    const cur = currentWeekOf(season);
-    const allWeeks = weeksPresent(season);
+    const cur = await currentWeek(env);
 
     const seasonTally = {};
     players.forEach(p => seasonTally[p] = { user: p, wins: 0, losses: 0 });
     const weeks = [];
 
-    for (const wk of allWeeks) {
-      const games = gamesForWeek(season, wk);
-      // Map of gameId -> winner abbr, for final games only.
+    for (let wk = 1; wk <= cur; wk++) {
+      const games = await getWeek(env, wk);
+      if (!games.length) continue;
+
       const results = {};
       let anyKickoff = null;
       for (const g of games) {
