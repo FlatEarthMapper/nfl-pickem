@@ -341,7 +341,7 @@ function teamCell(g, team, locked) {
   if (isWinner) cls += ' result-win';
   if (missed) cls += ' miss';
   return `<div class="${cls}" data-game="${g.id}" data-team="${team.abbr}">
-    <img src="${team.logo}" alt="${team.name}" loading="lazy">
+    ${team.logo ? `<img src="${team.logo}" alt="${team.name}" loading="lazy" onerror="this.style.display='none'">` : ''}
     <span class="name">${team.name}</span>
     <span class="rec">${team.record || ''}</span>
   </div>`;
