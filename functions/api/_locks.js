@@ -1,14 +1,34 @@
 // The one place the lock rule lives. Change it here and both /week and /picks obey.
 //
-// RULE: every game locks exactly 5 minutes before its own scheduled kickoff.
-// This uses each game's real start time from the schedule feed, so odd schedules — Thanksgiving,
-// Saturday slates, international morning games, Christmas — all just work with no
-// special cases.
+// RULE (weeks 1–16): every game locks exactly 5 minutes before its OWN kickoff.
+// RULE (weeks 17–18): every game in the week locks 5 minutes before the EARLIEST
+//   kickoff of that week — so the whole final-weeks slate freezes together at the
+//   first game. (Requested so nobody picks late games after seeing earlier results
+//   during the playoff-race weeks.)
+//
+// Using each game's real start time from the schedule feed means odd schedules —
+// Thanksgiving, Saturday slates, international morning games, Christmas — all just
+// work with no special cases.
 
 const LOCK_LEAD_MINUTES = 5;
 
+// Weeks that use the "whole slate locks at the first kickoff" rule.
+const SLATE_LOCK_WEEKS = new Set([17, 18]);
+
+// Per-game lock (weeks 1–16, and anywhere we only have one game's time).
 export function lockTimeFor(kickoffMs) {
   return kickoffMs - LOCK_LEAD_MINUTES * 60000;
+}
+
+// Week-aware lock. Pass the game, all games in that week, and the week number.
+// For SLATE_LOCK_WEEKS, every game locks 5 min before the week's earliest kickoff;
+// otherwise it's 5 min before this game's own kickoff.
+export function lockTimeForGame(game, weekGames, week) {
+  if (SLATE_LOCK_WEEKS.has(week) && Array.isArray(weekGames) && weekGames.length) {
+    const firstKick = Math.min(...weekGames.map(g => g.kickoffMs));
+    return firstKick - LOCK_LEAD_MINUTES * 60000;
+  }
+  return game.kickoffMs - LOCK_LEAD_MINUTES * 60000;
 }
 
 // ---- Weekly results reveal ----
