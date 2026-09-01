@@ -164,6 +164,34 @@
   .wk-toggle button:disabled { opacity: .35; cursor: default; }
   .wk-title { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 1px; font-size: 1rem; }
 
+  /* ---- the board ---- */
+  .board-people { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .board-person {
+    flex: 1; min-width: 90px; padding: 11px 8px; border: 1px solid var(--line); background: var(--field-2);
+    color: var(--chalk); border-radius: 10px; cursor: pointer; font-family: 'Oswald', sans-serif;
+    text-transform: uppercase; letter-spacing: 1px; font-size: 0.9rem; transition: all .15s;
+  }
+  .board-person:hover { border-color: var(--turf); }
+  .board-person.sel { background: var(--turf); border-color: var(--turf-bright); color: #04120a; font-weight: 600; }
+  .board-count {
+    font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 1px;
+    font-size: 0.8rem; color: var(--chalk-dim); margin-bottom: 12px; text-align: center;
+  }
+  .board-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 11px 14px; background: var(--field-2); border: 1px solid var(--line);
+    border-radius: 10px; margin-bottom: 8px;
+  }
+  .board-match { font-size: 0.9rem; display: flex; flex-direction: column; gap: 2px; }
+  .board-when { font-size: 0.7rem; color: var(--chalk-dim); }
+  .board-choice { text-align: right; }
+  .board-pick { display: inline-flex; align-items: center; gap: 7px; font-family: 'Oswald', sans-serif;
+    text-transform: uppercase; letter-spacing: .5px; font-size: 0.88rem; }
+  .board-pick img { width: 24px; height: 24px; object-fit: contain; }
+  .board-pick.ok { color: var(--turf-bright); }
+  .board-pick.no { color: var(--flag); }
+  .board-nopick { color: var(--chalk-dim); font-size: 0.82rem; font-style: italic; }
+
   .toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(120%);
     background: var(--turf); color: #04120a; padding: 12px 24px; border-radius: 999px;
@@ -198,6 +226,7 @@
   <div id="app" class="hidden">
     <div class="tabs">
       <button class="active" data-tab="picks" id="tabPicks">Make Picks</button>
+      <button data-tab="board" id="tabBoard">The Board</button>
       <button data-tab="standings" id="tabStandings">Standings</button>
     </div>
 
@@ -217,6 +246,11 @@
       </div>
     </div>
 
+    <div id="boardView" class="hidden">
+      <div class="board-people" id="boardPeople"></div>
+      <div id="boardBody"><div class="muted">Loading picks…</div></div>
+    </div>
+
     <div id="standingsView" class="hidden">
       <div id="standingsBody"><div class="muted">Tallying…</div></div>
     </div>
@@ -229,7 +263,7 @@
 // These are just the login buttons. They MUST match the PLAYERS secret in Cloudflare
 // (a JSON array like ["Andy","Sam","Pat"]). Edit both to your three names.
 const PLAYERS = ["Andy", "Rick", "Jim"];
-let state = { user: null, token: null, week: null, currentWeek: null, games: [], myPicks: {}, dirty: false };
+let state = { user: null, token: null, week: null, currentWeek: null, games: [], myPicks: {}, dirty: false, boardPerson: null };
 
 // ---------- login ----------
 const whoBox = document.getElementById('whoButtons');
@@ -274,14 +308,17 @@ function startApp() {
 
 // ---------- tabs ----------
 document.getElementById('tabPicks').onclick = () => switchTab('picks');
+document.getElementById('tabBoard').onclick = () => switchTab('board');
 document.getElementById('tabStandings').onclick = () => switchTab('standings');
 function switchTab(t) {
-  const picks = t==='picks';
-  document.getElementById('tabPicks').classList.toggle('active', picks);
-  document.getElementById('tabStandings').classList.toggle('active', !picks);
-  document.getElementById('picksView').classList.toggle('hidden', !picks);
-  document.getElementById('standingsView').classList.toggle('hidden', picks);
-  if (!picks) loadStandings();
+  document.getElementById('tabPicks').classList.toggle('active', t==='picks');
+  document.getElementById('tabBoard').classList.toggle('active', t==='board');
+  document.getElementById('tabStandings').classList.toggle('active', t==='standings');
+  document.getElementById('picksView').classList.toggle('hidden', t!=='picks');
+  document.getElementById('boardView').classList.toggle('hidden', t!=='board');
+  document.getElementById('standingsView').classList.toggle('hidden', t!=='standings');
+  if (t==='standings') loadStandings();
+  if (t==='board') loadBoard();
 }
 
 // ---------- week nav ----------
@@ -301,6 +338,7 @@ async function loadWeek(wk) {
     document.getElementById('prevWk').disabled = data.week <= 1;
     document.getElementById('nextWk').disabled = data.week >= 18;
     renderGames();
+    if (!document.getElementById('boardView').classList.contains('hidden')) loadBoard();
   } catch(e) {
     document.getElementById('games').innerHTML = '<div class="muted">Couldn\'t load the schedule. Refresh to retry.</div>';
   }
@@ -336,7 +374,7 @@ function teamCell(g, team, locked) {
   const isWinner = g.winner && g.winner === team.abbr;
   const missed = g.winner && picked && g.winner !== team.abbr;
   let cls = 'team';
-  if (locked || g.winner) cls += ' disabled';
+  if (locked) cls += ' disabled';
   if (picked) cls += ' picked';
   if (isWinner) cls += ' result-win';
   if (missed) cls += ' miss';
@@ -370,6 +408,62 @@ document.getElementById('saveBtn').onclick = async () => {
   } catch(e) { toast('Save failed — try again.', true); }
   btn.disabled = false; btn.textContent = 'Lock in my picks';
 };
+
+// ---------- the board (everyone's picks) ----------
+let boardData = null;
+
+async function loadBoard() {
+  const body = document.getElementById('boardBody');
+  body.innerHTML = '<div class="muted">Loading picks…</div>';
+  try {
+    const wk = state.week || '';
+    const r = await fetch('/api/allpicks' + (wk ? `?week=${wk}` : ''), { headers: authH() });
+    boardData = await r.json();
+    if (!state.boardPerson || !boardData.players.includes(state.boardPerson)) {
+      state.boardPerson = state.user && boardData.players.includes(state.user) ? state.user : boardData.players[0];
+    }
+    renderBoard();
+  } catch(e) { body.innerHTML = '<div class="muted">Couldn\'t load picks.</div>'; }
+}
+
+function renderBoard() {
+  if (!boardData) return;
+  // person selector
+  const people = document.getElementById('boardPeople');
+  people.innerHTML = boardData.players.map(p =>
+    `<button class="board-person ${p===state.boardPerson?'sel':''}" data-person="${p}">${p}${p===state.user?' (you)':''}</button>`
+  ).join('');
+  people.querySelectorAll('.board-person').forEach(b => {
+    b.onclick = () => { state.boardPerson = b.dataset.person; renderBoard(); };
+  });
+
+  const body = document.getElementById('boardBody');
+  if (!boardData.games.length) { body.innerHTML = '<div class="muted">No games this week yet.</div>'; return; }
+
+  const picks = boardData.picks[state.boardPerson] || {};
+  const madeCount = boardData.games.filter(g => picks[g.id]).length;
+
+  const rows = boardData.games.map(g => {
+    const pickedAbbr = picks[g.id];
+    const pickedTeam = pickedAbbr === g.home.abbr ? g.home : (pickedAbbr === g.away.abbr ? g.away : null);
+    const correct = g.winner && pickedAbbr && g.winner === pickedAbbr;
+    const wrong = g.winner && pickedAbbr && g.winner !== pickedAbbr;
+    let pickCell;
+    if (!pickedTeam) {
+      pickCell = `<span class="board-nopick">— not picked —</span>`;
+    } else {
+      pickCell = `<span class="board-pick ${correct?'ok':''} ${wrong?'no':''}">
+        ${pickedTeam.logo ? `<img src="${pickedTeam.logo}" onerror="this.style.display='none'">` : ''}
+        ${pickedTeam.name}${correct?' ✓':''}${wrong?' ✗':''}</span>`;
+    }
+    return `<div class="board-row">
+      <div class="board-match">${g.away.name} @ ${g.home.name}<span class="board-when">${g.kickoffLabel}${g.locked?' · 🔒':''}</span></div>
+      <div class="board-choice">${pickCell}</div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `<div class="board-count">${state.boardPerson} has picked ${madeCount} of ${boardData.games.length}</div>${rows}`;
+}
 
 // ---------- standings ----------
 let standingsData = null;
