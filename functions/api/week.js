@@ -3,7 +3,7 @@
 
 import { authUser } from './_auth.js';
 import { lockTimeForGame } from './_locks.js';
-import { getWeek, currentWeek, SEASON, NUM_WEEKS } from './_nfl.js';
+import { getWeek, currentWeek, getRecords, recordStr, SEASON, NUM_WEEKS } from './_nfl.js';
 
 export async function onRequestGet({ request, env }) {
   const user = await authUser(request, env);
@@ -17,6 +17,7 @@ export async function onRequestGet({ request, env }) {
     const week = isNaN(want) ? cur : Math.min(NUM_WEEKS, Math.max(1, want));
 
     const weekGames = await getWeek(env, week);
+    const records = await getRecords(env);
     const now = Date.now();
     const games = weekGames.map(g => {
       const lockMs = lockTimeForGame(g, weekGames, week);
@@ -28,8 +29,8 @@ export async function onRequestGet({ request, env }) {
         locked: now >= lockMs,
         lockLabel: fmtCentral(lockMs, true),
         winner: g.winner,
-        home: { abbr: g.home.abbr, name: g.home.name, logo: g.homeLogo, record: '' },
-        away: { abbr: g.away.abbr, name: g.away.name, logo: g.awayLogo, record: '' },
+        home: { abbr: g.home.abbr, name: g.home.name, logo: g.homeLogo, record: recordStr(records, g.home.abbr) },
+        away: { abbr: g.away.abbr, name: g.away.name, logo: g.awayLogo, record: recordStr(records, g.away.abbr) },
       };
     });
 
