@@ -22,9 +22,10 @@ const LEAGUE = '4391';
 export const SEASON = '2026';
 
 const BASE = `https://www.thesportsdb.com/api/v1/json/${KEY}`;
-const WEEK_CACHE_SECONDS = 60 * 60;              // consider a week's games "fresh" for an hour
+const WEEK_CACHE_SECONDS = 60 * 15;              // consider a week's games "fresh" for 15 min (snappier scores/records)
 const STALE_KEEP_SECONDS = 60 * 60 * 24 * 3;     // but KEEP the cached copy 3 days, to serve stale during rate-limit spells
 const CURRENT_WEEK_CACHE_SECONDS = 60 * 30;      // cache the "current week" answer for 30 min (avoids scanning every load)
+const RECORDS_CACHE_SECONDS = 60 * 30;           // cache computed team records for 30 min
 const NUM_WEEKS = 18;
 
 // Canonical NFL team name -> abbreviation (standard NFL team codes).
@@ -60,10 +61,12 @@ function normalizeEvent(ev, week) {
   const hs = ev.intHomeScore, as = ev.intAwayScore;
   const final = ev.strStatus === 'FT' || ev.strStatus === 'AOT';
   let winner = null;
+  let tie = false;
   if (final && hs !== '' && as !== '' && hs != null && as != null) {
     const h = parseInt(hs, 10), a = parseInt(as, 10);
-    if (isFinite(h) && isFinite(a) && h !== a) {
-      winner = h > a ? abbrFor(homeName) : abbrFor(awayName);
+    if (isFinite(h) && isFinite(a)) {
+      if (h === a) tie = true;
+      else winner = h > a ? abbrFor(homeName) : abbrFor(awayName);
     }
   }
   return {
@@ -75,6 +78,7 @@ function normalizeEvent(ev, week) {
     homeLogo: ev.strHomeTeamBadge || '',
     awayLogo: ev.strAwayTeamBadge || '',
     winner,
+    tie,
     final: !!final,
   };
 }
@@ -156,3 +160,50 @@ export async function currentWeek(env) {
 }
 
 export { NUM_WEEKS };
+
+// Compute every team's W-L-T record from completed games, weeks 1..current.
+// Cached so the Make Picks / Board screens don't recompute it constantly. Because
+// getWeek serves from cache, this walk is mostly cache hits, not new API calls.
+// Returns a map: { ABBR: { w, l, t, str } } where str is like "6-3-1" (or "6-3" if no ties).
+export async function getRecords(env) {
+  const cacheKey = `sdb:${SEASON}:records`;
+  const cached = await env.PICKS.get(cacheKey, 'json');
+  if (cached && (Date.now() - cached.at) < RECORDS_CACHE_SECONDS * 1000) {
+    return cached.records;
+  }
+
+  const rec = {}; // abbr -> {w,l,t}
+  const bump = (abbr, key) => {
+    if (!rec[abbr]) rec[abbr] = { w: 0, l: 0, t: 0 };
+    rec[abbr][key]++;
+  };
+
+  let cur;
+  try { cur = await currentWeek(env); } catch { cur = NUM_WEEKS; }
+
+  for (let wk = 1; wk <= cur; wk++) {
+    let games;
+    try { games = await getWeek(env, wk); } catch { continue; }
+    for (const g of games) {
+      if (!g.final) continue;
+      if (g.tie) { bump(g.home.abbr, 't'); bump(g.away.abbr, 't'); }
+      else if (g.winner) {
+        const loser = g.winner === g.home.abbr ? g.away.abbr : g.home.abbr;
+        bump(g.winner, 'w'); bump(loser, 'l');
+      }
+    }
+  }
+
+  const records = {};
+  for (const [abbr, r] of Object.entries(rec)) {
+    records[abbr] = { ...r, str: r.t > 0 ? `${r.w}-${r.l}-${r.t}` : `${r.w}-${r.l}` };
+  }
+  await env.PICKS.put(cacheKey, JSON.stringify({ records, at: Date.now() }),
+    { expirationTtl: RECORDS_CACHE_SECONDS + 300 });
+  return records;
+}
+
+// Look up one team's record string, '' if none yet (e.g. week 1, no games played).
+export function recordStr(records, abbr) {
+  return (records && records[abbr] && records[abbr].str) || '';
+}
