@@ -295,9 +295,6 @@
       <button class="modal-close" id="helpClose" aria-label="Close">×</button>
     </div>
     <div class="modal-body">
-      <div class="faq-q">What are the rules of the game?</div>
-      <div class="faq-a">Winner takes all. Loser buys the winner dinner at an agreed upon restaurant. The second place guy gets nothing... absolutely nothing. If there is a tie at the end of the season, the winner will be decided by who can read the list of ingredients the fastest on a bottle sriracha without readers.</div>
-      
       <div class="faq-q">How do I log in?</div>
       <div class="faq-a">Tap your name, then enter your 4-digit PIN. The first time you ever log in, whatever PIN you type becomes yours — so pick something you'll remember. Nobody, including the commissioner, can see your PIN.</div>
 
@@ -566,7 +563,7 @@ function renderBoard() {
         ${pickedTeam.name}${correct?' ✓':''}${wrong?' ✗':''}</span>`;
     }
     return `<div class="board-row">
-      <div class="board-match">${g.away.name} @ ${g.home.name}<span class="board-when">${g.kickoffLabel}${g.locked?' · 🔒':''}</span></div>
+      <div class="board-match">${g.away.name}${g.away.record?` (${g.away.record})`:''} @ ${g.home.name}${g.home.record?` (${g.home.record})`:''}<span class="board-when">${g.kickoffLabel}${g.locked?' · 🔒':''}</span></div>
       <div class="board-choice">${pickCell}</div>
     </div>`;
   }).join('');
