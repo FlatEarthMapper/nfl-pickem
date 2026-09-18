@@ -32,13 +32,19 @@ export async function onRequestGet({ request, env }) {
       const wkTally = {};
       players.forEach(p => wkTally[p] = { user: p, wins: 0, losses: 0 });
 
+      // Load each player's picks for the week once.
+      const playerPicks = {};
       for (const p of players) {
-        const picks = (await env.PICKS.get(`picks:${SEASON}:wk${wk}:${p}`, 'json')) || {};
-        for (const [gid, abbr] of Object.entries(picks)) {
-          const winner = results[gid];
-          if (!winner) continue;
-          if (abbr === winner) { seasonTally[p].wins++; wkTally[p].wins++; }
-          else { seasonTally[p].losses++; wkTally[p].losses++; }
+        playerPicks[p] = (await env.PICKS.get(`picks:${SEASON}:wk${wk}:${p}`, 'json')) || {};
+      }
+
+      // Score by GAME, not by pick: every final game is a win or a loss for each
+      // player. A correct pick = win; a wrong pick OR no pick at all = loss.
+      for (const [gid, winner] of Object.entries(results)) {
+        for (const p of players) {
+          const abbr = playerPicks[p][gid];
+          if (abbr && abbr === winner) { seasonTally[p].wins++; wkTally[p].wins++; }
+          else { seasonTally[p].losses++; wkTally[p].losses++; }  // wrong pick or missed pick
         }
       }
 
