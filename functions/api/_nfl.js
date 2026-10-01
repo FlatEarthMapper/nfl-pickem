@@ -143,17 +143,37 @@ export async function currentWeek(env) {
   }
 
   const now = Date.now();
-  // Start scanning from the last known current week (or 1), not always from 1,
-  // so we don't re-touch every prior week each time.
-  const start = (meta && meta.week) ? meta.week : 1;
-  let result = NUM_WEEKS;
-  for (let w = start; w <= NUM_WEEKS; w++) {
+  // Always scan from week 1. Weeks are cached ~3 days, so this is cheap (mostly
+  // cache hits) and — unlike scanning from a stored hint — it can never get stuck
+  // on an old "current week" value.
+  //
+  // "Current" = the earliest week that has games AND isn't fully complete. A week
+  // counts as complete only if EVERY game is final (or so far past kickoff it must
+  // be). A single not-yet-final game keeps the week current.
+  //
+  // We track the last week that actually had games, so once the whole season is
+  // complete we land on the final played week, not NUM_WEEKS blindly.
+  let lastWeekWithGames = 1;
+  let answer = null;
+  for (let w = 1; w <= NUM_WEEKS; w++) {
     let games;
-    try { games = await getWeek(env, w); } catch { result = w; break; }
-    if (!games.length) continue;
+    try {
+      games = await getWeek(env, w);
+    } catch {
+      // A fetch error for this week tells us nothing reliable — skip it and keep
+      // scanning rather than declaring it "current".
+      continue;
+    }
+    if (!games.length) continue;        // week not scheduled/populated yet
+    lastWeekWithGames = w;
     const allDone = games.every(g => g.final || now > g.kickoffMs + 6 * 3600e3);
-    if (!allDone) { result = w; break; }
+    if (!allDone) { answer = w; break; } // first incomplete week → that's current
   }
+
+  // If every scanned week was complete, the current week is the last one that had
+  // games (season over, or between the last finished week and the next populating).
+  const result = answer != null ? answer : lastWeekWithGames;
+
   await env.PICKS.put(metaKey, JSON.stringify({ week: result, at: Date.now() }),
     { expirationTtl: CURRENT_WEEK_CACHE_SECONDS + 300 });
   return result;
