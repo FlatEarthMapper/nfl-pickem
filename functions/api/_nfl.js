@@ -24,7 +24,6 @@ export const SEASON = '2026';
 const BASE = `https://www.thesportsdb.com/api/v1/json/${KEY}`;
 const WEEK_CACHE_SECONDS = 60 * 15;              // consider a week's games "fresh" for 15 min (snappier scores/records)
 const STALE_KEEP_SECONDS = 60 * 60 * 24 * 3;     // but KEEP the cached copy 3 days, to serve stale during rate-limit spells
-const CURRENT_WEEK_CACHE_SECONDS = 60 * 30;      // cache the "current week" answer for 30 min (avoids scanning every load)
 const RECORDS_CACHE_SECONDS = 60 * 30;           // cache computed team records for 30 min
 const NUM_WEEKS = 18;
 
@@ -131,52 +130,47 @@ export function gamesForWeek(seasonOrGames, week) {
   return [];
 }
 
-// Determine the "current" week. This USED to loop all 18 weeks on every call,
-// firing up to 18 API requests per page load — which by itself tripped the rate
-// limit. Now we cache the answer for a while and only scan forward from a stored
-// hint, so a normal page load makes at most one or two schedule fetches.
+// Determine the "current" week from the CALENDAR — no API calls, so it can never
+// hang, rate-limit, or get stuck on a stale value (the failure modes of the old
+// scan-the-weeks approach).
+//
+// NFL weeks run Thursday→Wednesday. We anchor to the Wednesday just before Week 1's
+// first game, then every 7 days is the next week boundary. Clamped to 1..NUM_WEEKS.
+//
+// SEASON_WEEK1_ANCHOR is that Wednesday 00:00 CT as an epoch-ms, i.e. the start of
+// Week 1's window. For 2026, Week 1 opened Wed Sep 9 / Thu Sep 10, so the anchor is
+// Wed Sep 9 2026 00:00 CT.
+const SEASON_WEEK1_ANCHOR = Date.parse('2026-09-09T05:00:00Z'); // 2026-09-09 00:00 CT (CDT = UTC-5)
+
+// Pure calendar estimate — instant, no API calls.
+function calendarWeek(now = Date.now()) {
+  if (now < SEASON_WEEK1_ANCHOR) return 1;
+  const weeksElapsed = Math.floor((now - SEASON_WEEK1_ANCHOR) / (7 * 864e5));
+  return Math.min(NUM_WEEKS, Math.max(1, 1 + weeksElapsed));
+}
+
 export async function currentWeek(env) {
-  const metaKey = `sdb:${SEASON}:currentWeek`;
-  const meta = await env.PICKS.get(metaKey, 'json');
-  if (meta && (Date.now() - meta.at) < CURRENT_WEEK_CACHE_SECONDS * 1000) {
-    return meta.week;
-  }
+  // Start from the calendar estimate (instant, can't hang). Then do a BOUNDED
+  // confirmation — at most 2 cheap, cached fetches — so if the anchor is off by a
+  // week we still land somewhere sensible. This can never slow-scan the whole
+  // season the way the old version did.
+  const guess = calendarWeek();
 
-  const now = Date.now();
-  // Always scan from week 1. Weeks are cached ~3 days, so this is cheap (mostly
-  // cache hits) and — unlike scanning from a stored hint — it can never get stuck
-  // on an old "current week" value.
-  //
-  // "Current" = the earliest week that has games AND isn't fully complete. A week
-  // counts as complete only if EVERY game is final (or so far past kickoff it must
-  // be). A single not-yet-final game keeps the week current.
-  //
-  // We track the last week that actually had games, so once the whole season is
-  // complete we land on the final played week, not NUM_WEEKS blindly.
-  let lastWeekWithGames = 1;
-  let answer = null;
-  for (let w = 1; w <= NUM_WEEKS; w++) {
-    let games;
+  // If the guessed week has games, trust it.
+  try {
+    const g = await getWeek(env, guess);
+    if (g.length) return guess;
+  } catch { return guess; } // fetch failed — the calendar guess is our best answer
+
+  // Guessed week had no games (anchor slightly off, or a between-weeks gap).
+  // Check the previous week once; if it has games, use it. Otherwise keep the guess.
+  if (guess > 1) {
     try {
-      games = await getWeek(env, w);
-    } catch {
-      // A fetch error for this week tells us nothing reliable — skip it and keep
-      // scanning rather than declaring it "current".
-      continue;
-    }
-    if (!games.length) continue;        // week not scheduled/populated yet
-    lastWeekWithGames = w;
-    const allDone = games.every(g => g.final || now > g.kickoffMs + 6 * 3600e3);
-    if (!allDone) { answer = w; break; } // first incomplete week → that's current
+      const prev = await getWeek(env, guess - 1);
+      if (prev.length) return guess - 1;
+    } catch { /* fall through */ }
   }
-
-  // If every scanned week was complete, the current week is the last one that had
-  // games (season over, or between the last finished week and the next populating).
-  const result = answer != null ? answer : lastWeekWithGames;
-
-  await env.PICKS.put(metaKey, JSON.stringify({ week: result, at: Date.now() }),
-    { expirationTtl: CURRENT_WEEK_CACHE_SECONDS + 300 });
-  return result;
+  return guess;
 }
 
 export { NUM_WEEKS };
@@ -201,9 +195,16 @@ export async function getRecords(env) {
   let cur;
   try { cur = await currentWeek(env); } catch { cur = NUM_WEEKS; }
 
-  for (let wk = 1; wk <= cur; wk++) {
-    let games;
-    try { games = await getWeek(env, wk); } catch { continue; }
+  // Fetch all needed weeks in PARALLEL, not one-at-a-time. A sequential loop mid-
+  // season means 7+ back-to-back API calls that can hang or rate-limit the whole
+  // page; in parallel they overlap and any single failure is isolated.
+  const weekNums = [];
+  for (let wk = 1; wk <= cur; wk++) weekNums.push(wk);
+  const weekResults = await Promise.all(
+    weekNums.map(wk => getWeek(env, wk).catch(() => []))
+  );
+
+  for (const games of weekResults) {
     for (const g of games) {
       if (!g.final) continue;
       if (g.tie) { bump(g.home.abbr, 't'); bump(g.away.abbr, 't'); }
