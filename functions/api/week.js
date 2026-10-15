@@ -3,7 +3,7 @@
 
 import { authUser } from './_auth.js';
 import { lockTimeForGame } from './_locks.js';
-import { getWeek, currentWeek, getRecords, recordStr, SEASON, NUM_WEEKS } from './_nfl.js';
+import { getWeek, currentWeek, SEASON, NUM_WEEKS } from './_nfl.js';
 
 export async function onRequestGet({ request, env }) {
   const user = await authUser(request, env);
@@ -16,11 +16,9 @@ export async function onRequestGet({ request, env }) {
     const cur = await currentWeek(env);
     const week = isNaN(want) ? cur : Math.min(NUM_WEEKS, Math.max(1, want));
 
+    // Only this ONE week's games — no records here, so the page loads immediately.
+    // Records come from /api/records separately and the client fills them in.
     const weekGames = await getWeek(env, week);
-    // Records are a nice-to-have, never block the schedule on them. If the records
-    // computation is slow or fails, show the games with blank records instead.
-    let records = {};
-    try { records = await getRecords(env); } catch { records = {}; }
     const now = Date.now();
     const games = weekGames.map(g => {
       const lockMs = lockTimeForGame(g, weekGames, week);
@@ -32,8 +30,8 @@ export async function onRequestGet({ request, env }) {
         locked: now >= lockMs,
         lockLabel: fmtCentral(lockMs, true),
         winner: g.winner,
-        home: { abbr: g.home.abbr, name: g.home.name, logo: g.homeLogo, record: recordStr(records, g.home.abbr) },
-        away: { abbr: g.away.abbr, name: g.away.name, logo: g.awayLogo, record: recordStr(records, g.away.abbr) },
+        home: { abbr: g.home.abbr, name: g.home.name, logo: g.homeLogo, record: '' },
+        away: { abbr: g.away.abbr, name: g.away.name, logo: g.awayLogo, record: '' },
       };
     });
 
