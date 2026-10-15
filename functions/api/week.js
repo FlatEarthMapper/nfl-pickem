@@ -17,7 +17,10 @@ export async function onRequestGet({ request, env }) {
     const week = isNaN(want) ? cur : Math.min(NUM_WEEKS, Math.max(1, want));
 
     const weekGames = await getWeek(env, week);
-    const records = await getRecords(env);
+    // Records are a nice-to-have, never block the schedule on them. If the records
+    // computation is slow or fails, show the games with blank records instead.
+    let records = {};
+    try { records = await getRecords(env); } catch { records = {}; }
     const now = Date.now();
     const games = weekGames.map(g => {
       const lockMs = lockTimeForGame(g, weekGames, week);
