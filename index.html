@@ -444,10 +444,34 @@ async function loadWeek(wk) {
     document.getElementById('prevWk').disabled = data.week <= 1;
     document.getElementById('nextWk').disabled = data.week >= 18;
     renderGames();
+    loadRecords(); // fetch team records in the background and fill them in after
     if (!document.getElementById('boardView').classList.contains('hidden')) loadBoard();
   } catch(e) {
     document.getElementById('games').innerHTML = '<div class="muted">Couldn\'t load the schedule. Refresh to retry.</div>';
   }
+}
+
+// Team records load separately so they never slow the schedule. Once fetched we
+// stitch them into the already-rendered team cells (and reuse across weeks).
+let teamRecords = null;
+async function loadRecords() {
+  if (teamRecords) { applyRecords(); return; } // already have them this session
+  try {
+    const r = await fetch('/api/records', { headers: authH() });
+    const data = await r.json();
+    teamRecords = data.records || {};
+    applyRecords();
+  } catch(e) { /* records are optional; leave blanks */ }
+}
+
+function applyRecords() {
+  if (!teamRecords) return;
+  // Fill the small record line under each team logo on the Make Picks screen.
+  document.querySelectorAll('#games .team').forEach(cell => {
+    const abbr = cell.dataset.team;
+    const rec = teamRecords[abbr];
+    if (rec) { const span = cell.querySelector('.rec'); if (span) span.textContent = rec; }
+  });
 }
 
 function renderGames() {
@@ -472,6 +496,7 @@ function renderGames() {
     box.appendChild(el);
   });
   bindTeamClicks();
+  applyRecords(); // re-fill records if we already have them (e.g. after a pick re-render)
   document.getElementById('saveRow').classList.toggle('hidden', !anyOpen);
 }
 
@@ -529,6 +554,7 @@ async function loadBoard() {
       state.boardPerson = state.user && boardData.players.includes(state.user) ? state.user : boardData.players[0];
     }
     renderBoard();
+    if (!teamRecords) loadRecords().then(() => { if (boardData) renderBoard(); });
   } catch(e) { body.innerHTML = '<div class="muted">Couldn\'t load picks.</div>'; }
 }
 
@@ -562,8 +588,10 @@ function renderBoard() {
         ${pickedTeam.logo ? `<img src="${pickedTeam.logo}" onerror="this.style.display='none'">` : ''}
         ${pickedTeam.name}${correct?' ✓':''}${wrong?' ✗':''}</span>`;
     }
+    const awayRec = (teamRecords && teamRecords[g.away.abbr]) || '';
+    const homeRec = (teamRecords && teamRecords[g.home.abbr]) || '';
     return `<div class="board-row">
-      <div class="board-match">${g.away.name}${g.away.record?` (${g.away.record})`:''} @ ${g.home.name}${g.home.record?` (${g.home.record})`:''}<span class="board-when">${g.kickoffLabel}${g.locked?' · 🔒':''}</span></div>
+      <div class="board-match">${g.away.name}${awayRec?` (${awayRec})`:''} @ ${g.home.name}${homeRec?` (${homeRec})`:''}<span class="board-when">${g.kickoffLabel}${g.locked?' · 🔒':''}</span></div>
       <div class="board-choice">${pickCell}</div>
     </div>`;
   }).join('');
