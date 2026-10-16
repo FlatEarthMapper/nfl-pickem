@@ -11,8 +11,17 @@
 //  - Regular season is rounds 1..18. Season string is the plain year, e.g. "2025".
 //  - strTimestamp is UTC -> plug straight into the lock math.
 
-const KEY = '123';
 const LEAGUE = '4391';
+
+// API key: use the private key from the SPORTSDB_KEY secret if set, else the shared
+// free test key "123". Add SPORTSDB_KEY as a Cloudflare secret (like TOKEN_SECRET)
+// to switch to your own premium key — no code change needed. The free "123" key is
+// shared by everyone (30 req/min total → frequent 429s); a premium key is yours
+// alone (100 req/min).
+function baseUrl(env) {
+  const key = (env && env.SPORTSDB_KEY) ? env.SPORTSDB_KEY : '123';
+  return `https://www.thesportsdb.com/api/v1/json/${key}`;
+}
 
 // ====================================================================
 // SEASON TOGGLE — the ONLY place to change the season.
@@ -20,10 +29,9 @@ const LEAGUE = '4391';
 // '2026' = the real season (regular-season rounds populate ~early Sept 2026).
 // ====================================================================
 export const SEASON = '2026';
-
-const BASE = `https://www.thesportsdb.com/api/v1/json/${KEY}`;
 const WEEK_CACHE_SECONDS = 60 * 15;              // consider a week's games "fresh" for 15 min (snappier scores/records)
 const STALE_KEEP_SECONDS = 60 * 60 * 24 * 3;     // but KEEP the cached copy 3 days, to serve stale during rate-limit spells
+const FETCH_TIMEOUT_MS = 8000;                   // never wait more than 8s on the upstream feed; abort and serve stale
 const RECORDS_CACHE_SECONDS = 60 * 30;           // cache computed team records for 30 min
 const NUM_WEEKS = 18;
 
@@ -93,10 +101,20 @@ export async function getWeek(env, week) {
   const fresh = cached && (Date.now() - cached.fetchedAt) < WEEK_CACHE_SECONDS * 1000;
   if (fresh) return cached.games;
 
-  const url = `${BASE}/eventsround.php?id=${LEAGUE}&r=${week}&s=${SEASON}`;
+  const url = `${baseUrl(env)}/eventsround.php?id=${LEAGUE}&r=${week}&s=${SEASON}`;
   let data;
   try {
-    const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    // Hard timeout: never wait more than FETCH_TIMEOUT_MS on the upstream. If it's
+    // slow/hanging (rate-limited shared key), abort and fall back to stale cache so
+    // the page returns in seconds instead of hanging ~40s.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+    let resp;
+    try {
+      resp = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
     if (!resp.ok) {
       // Rate-limited or errored: fall back to stale cache if we have ANY.
       if (cached) return cached.games;
@@ -104,6 +122,7 @@ export async function getWeek(env, week) {
     }
     data = await resp.json();
   } catch (e) {
+    // Timeout (AbortError) or network error: serve stale cache if we have it.
     if (cached) return cached.games;
     throw e;
   }
