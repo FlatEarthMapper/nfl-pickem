@@ -1,23 +1,20 @@
-// Shared NFL data layer, backed by TheSportsDB's free API.
+// Shared NFL data layer, backed by TheSportsDB (premium tier).
 //
-// IMPORTANT: the free tier's eventsseason.php only returns ~15 preseason games,
-// NOT the regular season. The endpoint that DOES return real weeks is
-// eventsround.php?id=4391&r=<week>&s=<year>, which returns all 16 games for that
-// week. So we fetch PER ROUND (per week) and cache each week hard in KV.
+// We fetch the WHOLE season in one call via eventsseason.php, cache it, and slice
+// weeks from it. With a premium key this endpoint returns the full regular season,
+// so one request covers everything — far lighter than per-week calls.
 //
 // Verified from live data:
-//  - Free key "123", NFL league id 4391.
-//  - eventsround.php?r=1&s=2025 -> 16 Week 1 games, correct UTC strTimestamp.
-//  - Regular season is rounds 1..18. Season string is the plain year, e.g. "2025".
+//  - NFL league id 4391. Season string is the plain year, e.g. "2026".
+//  - eventsseason.php (premium key) returns the full season; regular-season games
+//    are intRound 1..18, preseason is 500-level (skipped), postseason is higher.
 //  - strTimestamp is UTC -> plug straight into the lock math.
 
 const LEAGUE = '4391';
 
-// API key: use the private key from the SPORTSDB_KEY secret if set, else the shared
-// free test key "123". Add SPORTSDB_KEY as a Cloudflare secret (like TOKEN_SECRET)
-// to switch to your own premium key — no code change needed. The free "123" key is
-// shared by everyone (30 req/min total → frequent 429s); a premium key is yours
-// alone (100 req/min).
+// API key: the private key from the SPORTSDB_KEY secret (premium: 100 req/min, not
+// shared). Falls back to the free shared test key "123" only if the secret is
+// missing — that fallback is slow and rate-limited and shouldn't be relied on.
 function baseUrl(env) {
   const key = (env && env.SPORTSDB_KEY) ? env.SPORTSDB_KEY : '123';
   return `https://www.thesportsdb.com/api/v1/json/${key}`;
@@ -29,10 +26,12 @@ function baseUrl(env) {
 // '2026' = the real season (regular-season rounds populate ~early Sept 2026).
 // ====================================================================
 export const SEASON = '2026';
-const WEEK_CACHE_SECONDS = 60 * 15;              // consider a week's games "fresh" for 15 min (snappier scores/records)
-const STALE_KEEP_SECONDS = 60 * 60 * 24 * 3;     // but KEEP the cached copy 3 days, to serve stale during rate-limit spells
+// Premium tier gives plenty of rate-limit headroom (100 req/min), so we cache only
+// briefly for freshness — scores and standings update within a few minutes.
+const SEASON_CACHE_SECONDS = 60 * 3;             // season data is "fresh" for 3 min
+const STALE_KEEP_SECONDS = 60 * 60 * 24;         // keep a stale copy 1 day as a safety net on any upstream blip
 const FETCH_TIMEOUT_MS = 8000;                   // never wait more than 8s on the upstream feed; abort and serve stale
-const RECORDS_CACHE_SECONDS = 60 * 30;           // cache computed team records for 30 min
+const RECORDS_CACHE_SECONDS = 60 * 3;            // records refresh within a few minutes too
 const NUM_WEEKS = 18;
 
 // Canonical NFL team name -> abbreviation (standard NFL team codes).
@@ -106,7 +105,7 @@ function normalizeEvent(ev) {
 async function getSeason(env) {
   const cacheKey = `sdb:${SEASON}:season`;
   const cached = await env.PICKS.get(cacheKey, 'json');
-  const fresh = cached && (Date.now() - cached.fetchedAt) < WEEK_CACHE_SECONDS * 1000;
+  const fresh = cached && (Date.now() - cached.fetchedAt) < SEASON_CACHE_SECONDS * 1000;
   if (fresh) return cached.games;
 
   const url = `${baseUrl(env)}/eventsseason.php?id=${LEAGUE}&s=${SEASON}`;
@@ -201,9 +200,8 @@ export async function currentWeek(env) {
 
 export { NUM_WEEKS };
 
-// Compute every team's W-L-T record from completed games, weeks 1..current.
-// Cached so the Make Picks / Board screens don't recompute it constantly. Because
-// getWeek serves from cache, this walk is mostly cache hits, not new API calls.
+// Compute every team's W-L-T record from all completed games. Walks the one cached
+// season object in a single pass — no per-week loop, no extra API calls.
 // Returns a map: { ABBR: { w, l, t, str } } where str is like "6-3-1" (or "6-3" if no ties).
 export async function getRecords(env) {
   const cacheKey = `sdb:${SEASON}:records`;
@@ -218,26 +216,15 @@ export async function getRecords(env) {
     rec[abbr][key]++;
   };
 
-  let cur;
-  try { cur = await currentWeek(env); } catch { cur = NUM_WEEKS; }
+  let season = [];
+  try { season = await getSeason(env); } catch { season = []; }
 
-  // Fetch all needed weeks in PARALLEL, not one-at-a-time. A sequential loop mid-
-  // season means 7+ back-to-back API calls that can hang or rate-limit the whole
-  // page; in parallel they overlap and any single failure is isolated.
-  const weekNums = [];
-  for (let wk = 1; wk <= cur; wk++) weekNums.push(wk);
-  const weekResults = await Promise.all(
-    weekNums.map(wk => getWeek(env, wk).catch(() => []))
-  );
-
-  for (const games of weekResults) {
-    for (const g of games) {
-      if (!g.final) continue;
-      if (g.tie) { bump(g.home.abbr, 't'); bump(g.away.abbr, 't'); }
-      else if (g.winner) {
-        const loser = g.winner === g.home.abbr ? g.away.abbr : g.home.abbr;
-        bump(g.winner, 'w'); bump(loser, 'l');
-      }
+  for (const g of season) {
+    if (!g.final) continue;
+    if (g.tie) { bump(g.home.abbr, 't'); bump(g.away.abbr, 't'); }
+    else if (g.winner) {
+      const loser = g.winner === g.home.abbr ? g.away.abbr : g.home.abbr;
+      bump(g.winner, 'w'); bump(loser, 'l');
     }
   }
 
