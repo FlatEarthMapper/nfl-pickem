@@ -58,7 +58,13 @@ function shortName(name) {
   return parts[parts.length - 1] || name || '';
 }
 
-function normalizeEvent(ev, week) {
+function normalizeEvent(ev) {
+  // Week comes from intRound. Regular season = rounds 1..18. Preseason is 500-level,
+  // postseason is 160+/other — we skip anything outside 1..18.
+  const round = parseInt(ev.intRound, 10);
+  if (!(round >= 1 && round <= 18)) return null;
+  const week = round;
+
   const ts = ev.strTimestamp;
   const kickoffMs = ts ? Date.parse(ts.endsWith('Z') ? ts : ts + 'Z') : NaN;
   if (!isFinite(kickoffMs)) return null;
@@ -90,23 +96,22 @@ function normalizeEvent(ev, week) {
   };
 }
 
-// Fetch one week's games (with KV cache). Returns an array of normalized games.
-// Rate-limit resilient: on any fetch failure (including 429), we serve the last
-// good cached copy if we have one, even if it's "expired" for freshness purposes.
-// We keep a long-lived stale copy specifically so a rate-limited fetch never breaks
-// the page.
-export async function getWeek(env, week) {
-  const cacheKey = `sdb:${SEASON}:wk${week}`;
+// Fetch the WHOLE season once (one API call) via eventsseason.php, normalize every
+// regular-season game, and cache it. With a premium key this endpoint returns the
+// full season, so one request replaces 18 per-round calls. getWeek() just slices
+// this cached set by week.
+//
+// Rate-limit resilient: on any failure we serve the last good cached copy even if
+// stale, so a hiccup never breaks the page.
+async function getSeason(env) {
+  const cacheKey = `sdb:${SEASON}:season`;
   const cached = await env.PICKS.get(cacheKey, 'json');
   const fresh = cached && (Date.now() - cached.fetchedAt) < WEEK_CACHE_SECONDS * 1000;
   if (fresh) return cached.games;
 
-  const url = `${baseUrl(env)}/eventsround.php?id=${LEAGUE}&r=${week}&s=${SEASON}`;
+  const url = `${baseUrl(env)}/eventsseason.php?id=${LEAGUE}&s=${SEASON}`;
   let data;
   try {
-    // Hard timeout: never wait more than FETCH_TIMEOUT_MS on the upstream. If it's
-    // slow/hanging (rate-limited shared key), abort and fall back to stale cache so
-    // the page returns in seconds instead of hanging ~40s.
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     let resp;
@@ -116,13 +121,11 @@ export async function getWeek(env, week) {
       clearTimeout(timer);
     }
     if (!resp.ok) {
-      // Rate-limited or errored: fall back to stale cache if we have ANY.
       if (cached) return cached.games;
       throw new Error(`schedule source failed (status ${resp.status})`);
     }
     data = await resp.json();
   } catch (e) {
-    // Timeout (AbortError) or network error: serve stale cache if we have it.
     if (cached) return cached.games;
     throw e;
   }
@@ -131,16 +134,20 @@ export async function getWeek(env, week) {
   const games = [];
   for (const ev of events) {
     try {
-      const g = normalizeEvent(ev, week);
+      const g = normalizeEvent(ev); // skips non-regular-season automatically
       if (g) games.push(g);
     } catch (e) { /* skip malformed */ }
   }
   games.sort((a, b) => a.kickoffMs - b.kickoffMs);
-  // Keep cache entries alive far longer than their freshness window, so a stale
-  // copy is always available to serve during a rate-limit spell.
   await env.PICKS.put(cacheKey, JSON.stringify({ games, fetchedAt: Date.now() }),
     { expirationTtl: STALE_KEEP_SECONDS });
   return games;
+}
+
+// One week's games — just the cached season filtered to that week.
+export async function getWeek(env, week) {
+  const season = await getSeason(env);
+  return season.filter(g => g.week === week);
 }
 
 export function gamesForWeek(seasonOrGames, week) {
